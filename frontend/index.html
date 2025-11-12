@@ -1,0 +1,641 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Restaurant Analytics Tester</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f7f9fc;
+        }
+        
+        h1 {
+            color: #2c3e50;
+            border-bottom: 2px solid #3498db;
+            padding-bottom: 10px;
+        }
+        
+        .container {
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: bold;
+        }
+        
+        input[type="text"], 
+        textarea {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 16px;
+            margin-bottom: 15px;
+        }
+        
+        textarea {
+            min-height: 100px;
+            resize: vertical;
+        }
+        
+        button {
+            background-color: #3498db;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            font-size: 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+        
+        button:hover {
+            background-color: #2980b9;
+        }
+        
+        .response-container {
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 15px;
+            background-color: #f9f9f9;
+            min-height: 200px;
+            max-height: 500px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            font-family: 'Courier New', monospace;
+            margin-bottom: 20px;
+        }
+        
+        .visualization-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            margin-top: 20px;
+        }
+        
+        .visualization-image {
+            max-width: 100%;
+            height: auto;
+            border-radius: 4px;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+        }
+        
+        .download-link {
+            display: block;
+            margin-top: 5px;
+            text-decoration: none;
+            color: #3498db;
+        }
+        
+        .loading-indicator {
+            display: none;
+            margin-top: 20px;
+            text-align: center;
+        }
+        
+        .spinner {
+            border: 4px solid rgba(0, 0, 0, 0.1);
+            border-left-color: #3498db;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 10px;
+        }
+        
+        @keyframes spin {
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+        
+        .error-container {
+            display: none;
+            background-color: #ffebee;
+            color: #c62828;
+            padding: 15px;
+            border-radius: 4px;
+            margin-top: 20px;
+            border-left: 4px solid #c62828;
+        }
+        
+        .response-content {
+            line-height: 1.6;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            color: #2c3e50;
+            font-size: 16px;
+        }
+        
+        .response-content h1 {
+            font-size: 24px;
+            margin-top: 20px;
+            margin-bottom: 10px;
+            padding-bottom: 5px;
+        }
+        
+        .response-content h2 {
+            font-size: 20px;
+            margin-top: 15px;
+            margin-bottom: 10px;
+        }
+        
+        .response-content p {
+            margin-bottom: 10px;
+        }
+        
+        .response-content ul, .response-content ol {
+            margin-bottom: 10px;
+            padding-left: 25px;
+        }
+        
+        .response-content li {
+            margin-bottom: 5px;
+        }
+        
+        .tabs {
+            display: flex;
+            margin-bottom: 15px;
+            border-bottom: 1px solid #ddd;
+        }
+        
+        .tab {
+            padding: 10px 20px;
+            cursor: pointer;
+            background-color: #f1f1f1;
+            border: 1px solid #ddd;
+            border-bottom: none;
+            border-radius: 4px 4px 0 0;
+            margin-right: 5px;
+        }
+        
+        .tab.active {
+            background-color: white;
+            border-bottom-color: white;
+        }
+        
+        .tab-content {
+            display: none;
+        }
+        
+        .tab-content.active {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <h1>Restaurant Analytics Tester</h1>
+    
+    <div class="container">
+        <div class="tabs">
+            <div class="tab active" data-tab="standard">Standard Mode</div>
+            <div class="tab" data-tab="streaming">Streaming Mode</div>
+        </div>
+        
+        <div id="standard-tab" class="tab-content active">
+            <form id="query-form">
+                <div>
+                    <label for="business-id">Business ID:</label>
+                    <input type="text" id="business-id" name="business-id" value="888" required>
+                </div>
+                
+                <div>
+                    <label for="query-input">Your Query:</label>
+                    <textarea id="query-input" name="query" placeholder="e.g., What were my top selling items last month?" required></textarea>
+                </div>
+                
+                <button type="submit">Submit Query</button>
+            </form>
+        </div>
+        
+        <div id="streaming-tab" class="tab-content">
+            <form id="streaming-form">
+                <div>
+                    <label for="streaming-business-id">Business ID:</label>
+                    <input type="text" id="streaming-business-id" name="business-id" value="888" required>
+                </div>
+                
+                <div>
+                    <label for="streaming-query-input">Your Query:</label>
+                    <textarea id="streaming-query-input" name="query" placeholder="e.g., Can you analyze which items are most popular on weekends?" required></textarea>
+                </div>
+                
+                <button type="submit">Stream Response</button>
+            </form>
+        </div>
+        
+        <div id="loading-indicator" class="loading-indicator">
+            <div class="spinner"></div>
+            <p>Processing your request...</p>
+        </div>
+        
+        <div id="error-container" class="error-container"></div>
+    </div>
+    
+    <div class="container">
+        <h2>Response</h2>
+        <div id="response-container" class="response-container response-content"></div>
+    </div>
+    
+    <div class="container">
+        <h2>Visualizations</h2>
+        <div id="visualization-container" class="visualization-container"></div>
+    </div>
+    
+    <script>
+        // Helper functions
+        function generateSessionId() {
+            return 'session-' + Math.random().toString(36).substring(2, 15);
+        }
+        
+        function displayError(message) {
+            const errorElement = document.getElementById('error-container');
+            errorElement.textContent = `Error: ${message}`;
+            errorElement.style.display = 'block';
+        }
+        
+        function convertMarkdownToHtml(markdown) {
+            if (!markdown) return '';
+            
+            let html = markdown;
+            
+            // Convert headers
+            html = html.replace(/### (.*?)$/gm, '<h3>$1</h3>');
+            html = html.replace(/## (.*?)$/gm, '<h2>$1</h2>');
+            html = html.replace(/# (.*?)$/gm, '<h1>$1</h1>');
+            
+            // Convert bold
+            html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+            
+            // Convert italics
+            html = html.replace(/\*(.*?)\*/g, '<em>$1</em>');
+            
+            // Convert unordered lists
+            html = html.replace(/^\s*[-*+]\s+(.*?)$/gm, '<li>$1</li>');
+            html = html.replace(/(<li>.*?<\/li>)\s*(<li>)/gs, '$1<li>');
+            html = html.replace(/(<li>.*?<\/li>)\s*(?!<li>)/gs, '<ul>$1</ul>');
+            
+            // Convert ordered lists
+            html = html.replace(/^\s*\d+\.\s+(.*?)$/gm, '<li>$1</li>');
+            html = html.replace(/(<li>.*?<\/li>)\s*(?!<li>)/gs, '<ol>$1</ol>');
+            
+            // Convert paragraphs
+            html = html.replace(/\n\n/g, '</p><p>');
+            
+            return html;
+        }
+        
+        // Standard query function
+        async function queryRestaurantAnalytics(query, businessId, sessionId) {
+            // Replace this URL with your actual API Gateway endpoint
+            const apiUrl = 'https://boui3y56pyiamwxlq7zarmp6e40mbfip.lambda-url.us-west-2.on.aws/';
+            
+            // Create request payload
+            const requestData = {
+                query: query,
+                business_id: businessId,
+                session_id: sessionId || generateSessionId(),
+                enable_trace: false
+            };
+            
+            try {
+                // Show loading indicator
+                document.getElementById('loading-indicator').style.display = 'block';
+                document.getElementById('error-container').style.display = 'none';
+                
+                // Clear previous content
+                document.getElementById('response-container').innerHTML = '';
+                document.getElementById('visualization-container').innerHTML = '';
+                
+                // Make the request
+                const response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(requestData)
+                });
+                
+                // Hide loading indicator
+                document.getElementById('loading-indicator').style.display = 'none';
+                
+                // Check for success
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(`API error: ${errorData.error || response.statusText}`);
+                }
+                
+                // Parse the response
+                const result = await response.json();
+                
+                // Handle text response
+                if (result.text) {
+                    const responseElement = document.getElementById('response-container');
+                    const formattedText = convertMarkdownToHtml(result.text);
+                    responseElement.innerHTML = formattedText;
+                }
+                
+                // Handle any visualizations
+                if (result.files && result.files.length > 0) {
+                    const visualContainer = document.getElementById('visualization-container');
+                    
+                    result.files.forEach(file => {
+                        if (file.type && file.type.startsWith('image/')) {
+                            // Create image element for visualization
+                            const img = document.createElement('img');
+                            img.src = file.uri;
+                            img.alt = file.name || 'Visualization';
+                            img.className = 'visualization-image';
+                            visualContainer.appendChild(img);
+                            
+                            // Add download link
+                            const link = document.createElement('a');
+                            link.href = file.uri;
+                            link.download = file.name || 'visualization';
+                            link.textContent = `Download ${file.name || 'visualization'}`;
+                            link.className = 'download-link';
+                            visualContainer.appendChild(link);
+                        }
+                    });
+                }
+                
+                return result;
+            } catch (error) {
+                console.error('Error querying restaurant analytics:', error);
+                document.getElementById('loading-indicator').style.display = 'none';
+                displayError(error.message);
+                throw error;
+            }
+        }
+        
+        // Streaming query function
+        async function streamRestaurantAnalytics(query, businessId, sessionId) {
+            // Replace this URL with your actual streaming API Gateway endpoint
+            const apiUrl = 'https://boui3y56pyiamwxlq7zarmp6e40mbfip.lambda-url.us-west-2.on.aws/';
+            
+            // Create request payload
+            const requestData = {
+                query: query,
+                business_id: businessId,
+                session_id: sessionId || generateSessionId(),
+                enable_trace: false
+            };
+            
+            try {
+                // Show loading indicator
+                document.getElementById('loading-indicator').style.display = 'block';
+                document.getElementById('error-container').style.display = 'none';
+                
+                // Clear previous content
+                const responseElement = document.getElementById('response-container');
+                responseElement.innerHTML = '';
+                
+                const visualContainer = document.getElementById('visualization-container');
+                visualContainer.innerHTML = '';
+                
+                // Make the fetch request
+                const response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'text/event-stream'
+                    },
+                    body: JSON.stringify(requestData)
+                });
+                
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    document.getElementById('loading-indicator').style.display = 'none';
+                    throw new Error(`API error: ${errorText || response.statusText}`);
+                }
+                
+                // Get the response reader for streaming
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '';
+                let completeResponse = { text: '', files: [] };
+                
+                // Process the stream chunks
+                while (true) {
+                    const { done, value } = await reader.read();
+                    
+                    if (done) {
+                        break;
+                    }
+                    
+                    // Decode the chunk and add to buffer
+                    buffer += decoder.decode(value, { stream: true });
+                    
+                    // Process any complete JSON objects in the buffer
+                    let newlineIndex;
+                    while ((newlineIndex = buffer.indexOf('\n')) >= 0) {
+                        const line = buffer.slice(0, newlineIndex);
+                        buffer = buffer.slice(newlineIndex + 1);
+                        
+                        if (line.trim() === '') continue;
+                        
+                        try {
+                            // Parse the JSON chunk
+                            const chunk = JSON.parse(line);
+                            
+                            // Handle different chunk types
+                            if (chunk.type === 'text' && chunk.content) {
+                                // Append text to the display
+                                const formattedText = convertMarkdownToHtml(chunk.content);
+                                
+                                // Create a temporary div to hold the HTML
+                                const tempDiv = document.createElement('div');
+                                tempDiv.innerHTML = formattedText;
+                                
+                                // Append each child node to the response element
+                                while (tempDiv.firstChild) {
+                                    responseElement.appendChild(tempDiv.firstChild);
+                                }
+                                
+                                completeResponse.text += chunk.content;
+                                
+                                // Scroll to the bottom of the container
+                                responseElement.scrollTop = responseElement.scrollHeight;
+                            } 
+                            else if (chunk.type === 'file' && chunk.file) {
+                                // Add file to the response
+                                completeResponse.files.push(chunk.file);
+                                
+                                if (chunk.file.type && chunk.file.type.startsWith('image/')) {
+                                    // Create image element for visualization
+                                    const img = document.createElement('img');
+                                    img.src = chunk.file.uri;
+                                    img.alt = chunk.file.name || 'Visualization';
+                                    img.className = 'visualization-image';
+                                    visualContainer.appendChild(img);
+                                    
+                                    // Add download link
+                                    const link = document.createElement('a');
+                                    link.href = chunk.file.uri;
+                                    link.download = chunk.file.name || 'visualization';
+                                    link.textContent = `Download ${chunk.file.name || 'visualization'}`;
+                                    link.className = 'download-link';
+                                    visualContainer.appendChild(link);
+                                }
+                            }
+                            else if (chunk.type === 'done') {
+                                // Stream is complete
+                                console.log('Stream complete');
+                            }
+                        } catch (e) {
+                            console.error('Error parsing chunk:', e, line);
+                        }
+                    }
+                }
+                
+                // Hide loading indicator
+                document.getElementById('loading-indicator').style.display = 'none';
+                
+                return completeResponse;
+                
+            } catch (error) {
+                console.error('Error in streaming request:', error);
+                document.getElementById('loading-indicator').style.display = 'none';
+                displayError(error.message);
+                throw error;
+            }
+        }
+        
+        // Tab switching functionality
+        document.querySelectorAll('.tab').forEach(tab => {
+            tab.addEventListener('click', () => {
+                const tabId = tab.getAttribute('data-tab');
+                
+                // Update active tab
+                document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+                tab.classList.add('active');
+                
+                // Update active content
+                document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+                document.getElementById(`${tabId}-tab`).classList.add('active');
+                
+                // Clear previous results
+                document.getElementById('response-container').innerHTML = '';
+                document.getElementById('visualization-container').innerHTML = '';
+                document.getElementById('error-container').style.display = 'none';
+            });
+        });
+        
+        // Form submission handlers
+        document.getElementById('query-form').addEventListener('submit', async (event) => {
+            event.preventDefault();
+            
+            const queryInput = document.getElementById('query-input');
+            const businessId = document.getElementById('business-id').value;
+            
+            // Get the session ID from localStorage or create a new one
+            let sessionId = localStorage.getItem('analytics_session_id');
+            if (!sessionId) {
+                sessionId = generateSessionId();
+                localStorage.setItem('analytics_session_id', sessionId);
+            }
+            
+            try {
+                await queryRestaurantAnalytics(queryInput.value, businessId, sessionId);
+            } catch (error) {
+                // Error handling is done inside the query function
+                console.error('Query error:', error);
+            }
+        });
+        
+        document.getElementById('streaming-form').addEventListener('submit', async (event) => {
+            event.preventDefault();
+            
+            const queryInput = document.getElementById('streaming-query-input');
+            const businessId = document.getElementById('streaming-business-id').value;
+            
+            // Get the session ID from localStorage or create a new one
+            let sessionId = localStorage.getItem('analytics_session_id');
+            if (!sessionId) {
+                sessionId = generateSessionId();
+                localStorage.setItem('analytics_session_id', sessionId);
+            }
+            
+            try {
+                await streamRestaurantAnalytics(queryInput.value, businessId, sessionId);
+            } catch (error) {
+                // Error handling is done inside the stream function
+                console.error('Stream error:', error);
+            }
+        });
+        
+        // Add some sample queries
+        const sampleQueries = [
+            "What were my top 5 selling items last month?",
+            "Can you analyze sales trends over the past three months?",
+            "Which menu items have the highest profit margin?",
+            "Show me a visualization of order volume by day of week",
+            "What time of day do we get the most orders?",
+            "Compare performance between breakfast and dinner items"
+        ];
+        
+        function addSampleQueries() {
+            const container = document.createElement('div');
+            container.className = 'sample-queries';
+            container.innerHTML = '<h3>Sample Queries</h3>';
+            
+            const list = document.createElement('ul');
+            sampleQueries.forEach(query => {
+                const item = document.createElement('li');
+                const link = document.createElement('a');
+                link.href = '#';
+                link.textContent = query;
+                link.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    
+                    // Fill in the active tab's query input
+                    const activeTab = document.querySelector('.tab.active').getAttribute('data-tab');
+                    if (activeTab === 'standard') {
+                        document.getElementById('query-input').value = query;
+                    } else {
+                        document.getElementById('streaming-query-input').value = query;
+                    }
+                });
+                
+                item.appendChild(link);
+                list.appendChild(item);
+            });
+            
+            container.appendChild(list);
+            
+            // Add after the forms
+            document.querySelector('.container').appendChild(container);
+        }
+        
+        // Add sample queries on page load
+        addSampleQueries();
+        
+        // Pre-fill business ID from URL parameter if available
+        function getParameterByName(name, url = window.location.href) {
+            name = name.replace(/[\[\]]/g, '\\$&');
+            const regex = new RegExp('[?&]' + name + '(=([^&#]*)|&|#|$)');
+            const results = regex.exec(url);
+            if (!results) return null;
+            if (!results[2]) return '';
+            return decodeURIComponent(results[2].replace(/\+/g, ' '));
+        }
+        
+        const urlBusinessId = getParameterByName('business_id');
+        if (urlBusinessId) {
+            document.getElementById('business-id').value = urlBusinessId;
+            document.getElementById('streaming-business-id').value = urlBusinessId;
+        }
+    </script>
+</body>
+</html>

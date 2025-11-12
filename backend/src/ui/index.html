@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Open LLM VTuber</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1000px;
+            margin: 40px auto;
+            padding: 20px;
+            color: #333;
+        }
+
+        .nav-links {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            margin-bottom: 40px;
+        }
+
+        .nav-link {
+            padding: 15px;
+            background: #f0f0f0;
+            border-radius: 8px;
+            text-decoration: none;
+            color: #333;
+            transition: background 0.2s;
+        }
+
+        .nav-link:hover {
+            background: #e0e0e0;
+        }
+
+        .character-creator {
+            background: #fff;
+            padding: 25px;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: bold;
+        }
+
+        input[type="text"],
+        input[type="file"],
+        textarea,
+        select {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+
+        textarea {
+            height: 120px;
+            resize: vertical;
+        }
+
+        .button {
+            background: #4CAF50;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+
+        .button:hover {
+            background: #45a049;
+        }
+
+        .model-preview {
+            margin-top: 20px;
+            padding: 15px;
+            border: 1px dashed #ddd;
+            border-radius: 8px;
+            text-align: center;
+        }
+
+        .model-preview img {
+            max-width: 200px;
+            max-height: 200px;
+        }
+
+        .info-text {
+            color: #666;
+            font-size: 14px;
+            margin-top: 5px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Open LLM VTuber Apps</h1>
+    
+    <div class="nav-links">
+        <a href="/frontend" class="nav-link">Main VTuber App</a>
+        <a href="/web-tool" class="nav-link">ASR & TTS Tools</a>
+        <a href="/simple-live2d" class="nav-link">Simple Live2D Viewer</a>
+    </div>
+
+    <div class="character-creator">
+        <h2>Character Creator</h2>
+        <form id="characterForm">
+            <div class="form-group">
+                <label for="characterName">Character Name</label>
+                <input type="text" id="characterName" required>
+                <div class="info-text">This will be used in conversations and display name</div>
+            </div>
+
+            <div class="form-group">
+                <label for="confUid">Configuration UID</label>
+                <input type="text" id="confUid" required>
+                <div class="info-text">Unique identifier for this character configuration</div>
+            </div>
+
+            <div class="form-group">
+                <label for="live2dModel">Live2D Model</label>
+                <select id="live2dModel">
+                    <option value="shizuku-local">Shizuku (Default)</option>
+                    <option value="mao_pro">Mao Pro</option>
+                    <option value="upload">Upload New Model...</option>
+                </select>
+            </div>
+
+            <div class="form-group" id="modelUpload" style="display: none;">
+                <label>Upload Live2D Model Files</label>
+                <input type="file" id="modelFiles" multiple webkitdirectory>
+                <div class="info-text">Select the folder containing your Live2D model files (.model3.json, textures, etc.)</div>
+            </div>
+
+            <div class="form-group">
+                <label for="avatar">Avatar Image</label>
+                <input type="file" id="avatar" accept="image/*">
+                <div class="info-text">Square image recommended. Will use first letter of name if not provided</div>
+            </div>
+
+            <div class="form-group">
+                <label for="personaPrompt">Persona Prompt</label>
+                <textarea id="personaPrompt" required></textarea>
+                <div class="info-text">Describe the character's personality, behavior, and background</div>
+            </div>
+
+            <div class="model-preview">
+                <h3>Live2D Model Preview</h3>
+                <div id="previewArea">
+                    Select a model to preview
+                </div>
+            </div>
+
+            <button type="submit" class="button">Create Character</button>
+        </form>
+    </div>
+
+    <script>
+        // Show/hide model upload based on selection
+        document.getElementById('live2dModel').addEventListener('change', function() {
+            document.getElementById('modelUpload').style.display = 
+                this.value === 'upload' ? 'block' : 'none';
+        });
+
+        // Handle form submission
+        document.getElementById('characterForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const formData = new FormData();
+            formData.append('characterName', document.getElementById('characterName').value);
+            formData.append('confUid', document.getElementById('confUid').value);
+            formData.append('live2dModel', document.getElementById('live2dModel').value);
+            formData.append('personaPrompt', document.getElementById('personaPrompt').value);
+            
+            // Add avatar if selected
+            const avatarFile = document.getElementById('avatar').files[0];
+            if (avatarFile) {
+                formData.append('avatar', avatarFile);
+            }
+
+            // Add model files if uploading new model
+            if (document.getElementById('live2dModel').value === 'upload') {
+                const modelFiles = document.getElementById('modelFiles').files;
+                for (let file of modelFiles) {
+                    formData.append('modelFiles', file);
+                }
+            }
+
+            try {
+                const response = await fetch('/api/create-character', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                if (response.ok) {
+                    alert('Character created successfully!');
+                    window.location.href = '/frontend';
+                } else {
+                    alert('Error creating character: ' + await response.text());
+                }
+            } catch (error) {
+                alert('Error: ' + error.message);
+            }
+        });
+    </script>
+</body>
+</html> 
