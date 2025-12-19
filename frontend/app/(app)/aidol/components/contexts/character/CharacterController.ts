@@ -200,10 +200,11 @@ export class CharacterHandler {
   private expressionHandler: ExpressionHandler;
   private modelConfigHandler: ModelConfigHandler;
   private streamProcessor: ScriptProcessorNode | null = null;
+  private audioSource: MediaStreamAudioSourceNode | null = null;
+  private dummyGain: GainNode | null = null;
   private audioBuffer: Float32Array[] = [];
   private bufferSize: number = 4096; // Fixed buffer size
   private sampleRate: number = 16000; // Standard sample rate
-  private isProcessing: boolean = false;
   private silenceThreshold: number = 0.005; // Reduced from 0.01 to be less sensitive
   private silenceDuration: number = 1500; // Increased from 1000ms to 3000ms (3 seconds)
   private lastAudioTime: number = 0;
@@ -828,30 +829,92 @@ export class CharacterHandler {
    * @returns A promise that resolves when the microphone state is updated
    */
   async handleMicrophoneToggle(isRecording: boolean, audioPermissionGranted: boolean, audioStream: MediaStream | null): Promise<void> {
+    console.log('[CharacterHandler] Microphone toggle called:', {
+      isRecording,
+      audioPermissionGranted,
+      hasAudioStream: !!audioStream,
+      audioContextState: this.audioContext?.state,
+      isConnected: this.props.isConnected
+    });
+    
+    // Check WebSocket connection before starting recording
+    if (!isRecording && !this.props.isConnected) {
+      const error = new Error('WebSocket is not connected. Please wait for the connection to be established before using the microphone.');
+      console.error('[CharacterHandler] Cannot start recording:', error.message);
+      alert('WebSocket is not connected. Please wait for the connection to be established before using the microphone.');
+      throw error;
+    }
+    
     try {
       if (!isRecording) {
         if (!audioPermissionGranted) {
           console.log('[CharacterHandler] Requesting microphone permissions');
           const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          console.log('[CharacterHandler] Microphone stream obtained:', {
+            trackCount: stream.getTracks().length,
+            trackState: stream.getAudioTracks()[0]?.readyState,
+            trackLabel: stream.getAudioTracks()[0]?.label,
+            trackEnabled: stream.getAudioTracks()[0]?.enabled
+          });
           this.props.setAudioPermissionGranted(true);
           this.props.setAudioStream(stream);
           await this.setupAudioProcessing(stream);
         } else if (audioStream) {
-          await this.setupAudioProcessing(audioStream);
+          // Check if the stream is still active
+          const audioTrack = audioStream.getAudioTracks()[0];
+          if (!audioTrack || audioTrack.readyState === 'ended') {
+            console.warn('[CharacterHandler] Existing audio stream has ended, requesting new stream');
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            this.props.setAudioStream(stream);
+            await this.setupAudioProcessing(stream);
+          } else {
+            console.log('[CharacterHandler] Using existing audio stream:', {
+              trackState: audioTrack.readyState,
+              trackLabel: audioTrack.label,
+              trackEnabled: audioTrack.enabled
+            });
+            await this.setupAudioProcessing(audioStream);
+          }
+        } else {
+          console.warn('[CharacterHandler] No audio stream available, requesting new stream');
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          this.props.setAudioStream(stream);
+          await this.setupAudioProcessing(stream);
         }
         this.props.setIsRecording(true);
+        console.log('[CharacterHandler] Recording started successfully');
       } else {
+        console.log('[CharacterHandler] Stopping recording');
         this.stopAudioProcessing();
         if (audioStream) {
-          audioStream.getTracks().forEach(track => track.stop());
+          audioStream.getTracks().forEach(track => {
+            console.log('[CharacterHandler] Stopping audio track:', track.label);
+            track.stop();
+          });
           this.props.setAudioStream(null);
         }
         this.props.setIsRecording(false);
+        console.log('[CharacterHandler] Recording stopped');
       }
     } catch (error) {
       console.error('[CharacterHandler] Error accessing microphone:', error);
       this.props.setIsRecording(false);
       this.props.setAudioPermissionGranted(false);
+      
+      // Provide user-friendly error messages
+      if (error instanceof Error) {
+        if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
+          alert('Microphone permission was denied. Please allow microphone access in your browser settings and try again.');
+        } else if (error.name === 'NotFoundError' || error.name === 'DevicesNotFoundError') {
+          alert('No microphone found. Please connect a microphone and try again.');
+        } else if (error.name === 'NotReadableError' || error.name === 'TrackStartError') {
+          alert('Microphone is already in use by another application. Please close other applications using the microphone and try again.');
+        } else {
+          alert(`Error accessing microphone: ${error.message}`);
+        }
+      }
+      
+      throw error; // Re-throw to allow caller to handle
     }
   }
 
@@ -902,37 +965,96 @@ export class CharacterHandler {
       }
 
       const source = this.audioContext.createMediaStreamSource(stream);
+      
+      // Check if ScriptProcessorNode is supported
+      if (!this.audioContext.createScriptProcessor) {
+        throw new Error('ScriptProcessorNode is not supported in this browser. Audio processing cannot be initialized.');
+      }
+      
       this.streamProcessor = this.audioContext.createScriptProcessor(this.bufferSize, 1, 1);
+      
+      if (!this.streamProcessor) {
+        throw new Error('Failed to create ScriptProcessorNode');
+      }
+
+      // Track audio chunks received for debugging
+      let chunkCount = 0;
+      let lastLogTime = Date.now();
 
       this.streamProcessor.onaudioprocess = (e) => {
-        if (!this.isProcessing) {
-          this.isProcessing = true;
+        // Remove the isProcessing check to allow continuous processing
+        // The flag was causing audio chunks to be dropped if processing took longer than the interval between chunks
+        try {
+          const inputData = e.inputBuffer.getChannelData(0);
           
-          try {
-            const inputData = e.inputBuffer.getChannelData(0);
-            const float32Array = new Float32Array(inputData);
-            
-            // Calculate current volume
-            const currentVolume = this.calculateVolume(float32Array);
-            this.updateVolumeHistory(currentVolume);
-            
-            // Add to buffer
-            this.audioBuffer.push(float32Array);
-            
-            // Process buffer if it reaches a certain size (reduced from 4 to 2 for more frequent sending)
-            if (this.audioBuffer.length >= 2) { // Process every 2 chunks (8192 samples) for more frequent voice data
-              this.processAudioBuffer();
-            }
-          } catch (error) {
-            console.error('[CharacterHandler] Error in audio processing callback:', error);
-          } finally {
-            this.isProcessing = false;
+          // Validate input data
+          if (!inputData || inputData.length === 0) {
+            console.warn('[CharacterHandler] Empty input data received');
+            return;
           }
+          
+          const float32Array = new Float32Array(inputData);
+          
+          // Calculate current volume
+          const currentVolume = this.calculateVolume(float32Array);
+          this.updateVolumeHistory(currentVolume);
+          
+          // Log periodically to verify audio is being captured
+          chunkCount++;
+          const now = Date.now();
+          if (now - lastLogTime > 2000) { // Log every 2 seconds
+            console.log('[CharacterHandler] Audio chunks received:', {
+              chunkCount,
+              currentVolume: currentVolume.toFixed(6),
+              bufferSize: this.audioBuffer.length,
+              audioContextState: this.audioContext?.state,
+              streamActive: stream.getAudioTracks()[0]?.readyState === 'live',
+              isConnected: this.props.isConnected,
+              inputDataLength: inputData.length
+            });
+            lastLogTime = now;
+          }
+          
+          // Add to buffer
+          this.audioBuffer.push(float32Array);
+          
+          // Process buffer if it reaches a certain size (reduced from 4 to 2 for more frequent sending)
+          if (this.audioBuffer.length >= 2) { // Process every 2 chunks (8192 samples) for more frequent voice data
+            this.processAudioBuffer();
+          }
+        } catch (error) {
+          console.error('[CharacterHandler] Error in audio processing callback:', error);
+          // Continue processing even if there's an error with one chunk
         }
       };
 
+      // Create a dummy gain node to complete the audio graph without causing feedback
+      // ScriptProcessorNode needs to be connected to something in the audio graph to work
+      this.dummyGain = this.audioContext.createGain();
+      this.dummyGain.gain.value = 0; // Set gain to 0 to prevent audio output
+      
+      this.audioSource = source;
       source.connect(this.streamProcessor);
-      this.streamProcessor.connect(this.audioContext.destination);
+      this.streamProcessor.connect(this.dummyGain);
+      this.dummyGain.connect(this.audioContext.destination);
+      
+      console.log('[CharacterHandler] Audio processing nodes connected:', {
+        audioContextState: this.audioContext.state,
+        sampleRate: this.audioContext.sampleRate,
+        bufferSize: this.bufferSize,
+        streamTrackState: stream.getAudioTracks()[0]?.readyState,
+        streamTrackLabel: stream.getAudioTracks()[0]?.label,
+        streamTrackEnabled: stream.getAudioTracks()[0]?.enabled,
+        isConnected: this.props.isConnected,
+        hasStreamProcessor: !!this.streamProcessor,
+        hasAudioSource: !!this.audioSource,
+        hasDummyGain: !!this.dummyGain
+      });
+      
+      // Verify the audio graph is properly connected
+      if (!this.streamProcessor || !this.audioSource || !this.dummyGain) {
+        throw new Error('Failed to create audio processing nodes');
+      }
 
       // Start silence detection
       this.startSilenceDetection();
@@ -1034,7 +1156,21 @@ export class CharacterHandler {
 
   private sendAudioData(audioData: Float32Array): void {
     if (!this.props.isConnected) {
-      console.warn('[CharacterHandler] Cannot send audio data: WebSocket not connected');
+      console.warn('[CharacterHandler] Cannot send audio data: WebSocket not connected', {
+        isConnected: this.props.isConnected,
+        audioDataLength: audioData.length
+      });
+      // Stop recording if WebSocket disconnects
+      if (this.props.setIsRecording) {
+        console.log('[CharacterHandler] Stopping recording due to WebSocket disconnect');
+        this.props.setIsRecording(false);
+      }
+      return;
+    }
+
+    // Validate audio data
+    if (!audioData || audioData.length === 0) {
+      console.warn('[CharacterHandler] Invalid audio data, skipping send');
       return;
     }
 
@@ -1044,25 +1180,38 @@ export class CharacterHandler {
     // Convert to regular array for JSON serialization
     const audioArray = Array.from(normalizedData);
     
+    // Validate array conversion
+    if (!audioArray || audioArray.length === 0) {
+      console.warn('[CharacterHandler] Failed to convert audio data to array, skipping send');
+      return;
+    }
+    
     console.log('[CharacterHandler] Sending audio data:', {
       sampleCount: audioData.length,
       normalizedSampleCount: normalizedData.length,
-      bufferState: 'sending'
+      arrayLength: audioArray.length,
+      bufferState: 'sending',
+      isConnected: this.props.isConnected
     });
     
-    // Send audio data through WebSocket
-    this.props.sendMessage({
-      type: 'mic-audio-data',
-      audio: audioArray,
-      sampleRate: this.sampleRate,
-      bufferSize: this.bufferSize
-    });
+    try {
+      // Send audio data through WebSocket
+      this.props.sendMessage({
+        type: 'mic-audio-data',
+        audio: audioArray,
+        sampleRate: this.sampleRate,
+        bufferSize: this.bufferSize
+      });
 
-    // Log after sending
-    console.log('[CharacterHandler] Audio data sent:', {
-      sampleCount: audioData.length,
-      bufferState: 'sent'
-    });
+      // Log after sending
+      console.log('[CharacterHandler] Audio data sent successfully:', {
+        sampleCount: audioData.length,
+        bufferState: 'sent'
+      });
+    } catch (error) {
+      console.error('[CharacterHandler] Error sending audio data:', error);
+      // Don't throw - allow processing to continue
+    }
   }
 
   private normalizeAudioData(audioData: Float32Array): Float32Array {
@@ -1088,7 +1237,10 @@ export class CharacterHandler {
   private stopAudioProcessing(): void {
     console.log('[CharacterHandler] Stopping audio processing:', {
       remainingChunks: this.audioBuffer.length,
-      bufferState: 'before-stop'
+      bufferState: 'before-stop',
+      hasStreamProcessor: !!this.streamProcessor,
+      hasAudioSource: !!this.audioSource,
+      hasDummyGain: !!this.dummyGain
     });
     
     // Process any remaining audio data
@@ -1102,18 +1254,39 @@ export class CharacterHandler {
       this.silenceCheckTimer = null;
     }
     
+    // Disconnect audio nodes in reverse order
     if (this.streamProcessor) {
-      this.streamProcessor.disconnect();
+      try {
+        this.streamProcessor.disconnect();
+      } catch (e) {
+        console.warn('[CharacterHandler] Error disconnecting streamProcessor:', e);
+      }
       this.streamProcessor = null;
+    }
+    
+    if (this.dummyGain) {
+      try {
+        this.dummyGain.disconnect();
+      } catch (e) {
+        console.warn('[CharacterHandler] Error disconnecting dummyGain:', e);
+      }
+      this.dummyGain = null;
+    }
+    
+    if (this.audioSource) {
+      try {
+        this.audioSource.disconnect();
+      } catch (e) {
+        console.warn('[CharacterHandler] Error disconnecting audioSource:', e);
+      }
+      this.audioSource = null;
     }
     
     this.audioBuffer = [];
     this.volumeHistory = [];
-    this.isProcessing = false;
 
     console.log('[CharacterHandler] Audio processing stopped:', {
-      bufferState: 'after-stop',
-      isProcessing: this.isProcessing
+      bufferState: 'after-stop'
     });
   }
 

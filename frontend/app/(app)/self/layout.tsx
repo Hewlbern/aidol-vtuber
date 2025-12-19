@@ -1,9 +1,8 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 
 export const metadata: Metadata = {
-  title: "Live2D VTuber Demo",
-  description: "A demo of Live2D with Next.js",
+  title: "Configuration - VTuber Settings",
+  description: "Configure character, background, model settings, and interactions",
 };
 
 export default function RootLayout({
@@ -17,7 +16,6 @@ export default function RootLayout({
     
       </head>
       <body className="overflow-hidden">
-        <Link href="/aidol">Self</Link>
         {children}
       </body>
     </html>

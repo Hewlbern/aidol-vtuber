@@ -106,10 +106,20 @@ export const ModelProvider: React.FC<ModelProviderProps> = ({ children, isConnec
   }, [initialConfig, isConnected, sendMessage]);
 
   const [modelState, setModelState] = useState<ModelContextState>(() => {
+    // Load saved character from localStorage if available
+    let savedCharacterId: string | null = null;
+    let savedModelPath: string | null = null;
+    try {
+      savedCharacterId = localStorage.getItem('characterId');
+      savedModelPath = localStorage.getItem('modelPath');
+    } catch (e) {
+      console.warn('[ModelContext] Failed to load saved character from localStorage:', e);
+    }
+
     return {
       config: initialConfig || null,
-      modelPath: DEFAULT_MODEL_PATH,
-      characterId: initialConfig?.character?.id || DEFAULT_CHARACTER_ID,
+      modelPath: savedModelPath || initialConfig?.character?.modelPath || DEFAULT_MODEL_PATH,
+      characterId: savedCharacterId || initialConfig?.character?.id || DEFAULT_CHARACTER_ID,
       backgroundPath: DEFAULT_BACKGROUND_PATH,
       isModelLoading: false,
       modelScale: INITIAL_SCALE,
@@ -228,6 +238,192 @@ export const ModelProvider: React.FC<ModelProviderProps> = ({ children, isConnec
     }
   }, [audioContext]);
 
+  // Load persisted state from localStorage on mount
+  useEffect(() => {
+    try {
+      const savedScale = localStorage.getItem('modelScale');
+      const savedPosition = localStorage.getItem('modelPosition');
+      const savedBackground = localStorage.getItem('backgroundPath');
+      const savedShowSubtitles = localStorage.getItem('showSubtitles');
+      const savedIsPointerInteractive = localStorage.getItem('isPointerInteractive');
+      const savedIsScrollToResizeEnabled = localStorage.getItem('isScrollToResizeEnabled');
+      const savedCharacterId = localStorage.getItem('characterId');
+      const savedModelPath = localStorage.getItem('modelPath');
+
+      // Load character first if saved
+      if (savedCharacterId && savedModelPath) {
+        console.log('[ModelContext] Loading saved character from localStorage:', {
+          characterId: savedCharacterId,
+          modelPath: savedModelPath
+        });
+        // Update state
+        setModelState(prev => ({
+          ...prev,
+          characterId: savedCharacterId,
+          modelPath: savedModelPath
+        }));
+        // Dispatch event to trigger model loading
+        window.dispatchEvent(new CustomEvent('model-path-change', {
+          detail: { modelPath: savedModelPath, characterId: savedCharacterId }
+        }));
+      }
+
+      if (savedScale) {
+        const scale = parseFloat(savedScale);
+        if (!isNaN(scale)) {
+          scaleDispatch({ type: 'SET_SCALE', payload: scale });
+          setModelState(prev => ({ ...prev, modelScale: scale }));
+        }
+      }
+
+      if (savedPosition) {
+        try {
+          const position = JSON.parse(savedPosition);
+          if (position && typeof position.x === 'number' && typeof position.y === 'number') {
+            positionDispatch({ type: 'SET_POSITION', payload: position });
+            setModelState(prev => ({ ...prev, modelPosition: position }));
+          }
+        } catch (e) {
+          console.warn('[ModelContext] Failed to parse saved position:', e);
+        }
+      }
+
+      if (savedBackground) {
+        setModelState(prev => ({ ...prev, backgroundPath: savedBackground }));
+        // Dispatch event to update background
+        window.dispatchEvent(new CustomEvent('background-path-change', {
+          detail: { backgroundPath: savedBackground }
+        }));
+      }
+
+      if (savedShowSubtitles !== null) {
+        setModelState(prev => ({ ...prev, showSubtitles: savedShowSubtitles === 'true' }));
+      }
+
+      if (savedIsPointerInteractive !== null) {
+        setModelState(prev => ({ ...prev, isPointerInteractive: savedIsPointerInteractive === 'true' }));
+      }
+
+      if (savedIsScrollToResizeEnabled !== null) {
+        setModelState(prev => ({ ...prev, isScrollToResizeEnabled: savedIsScrollToResizeEnabled === 'true' }));
+      }
+    } catch (e) {
+      console.warn('[ModelContext] Failed to load state from localStorage:', e);
+    }
+  }, []);
+
+  // Listen for state changes from config page (cross-page synchronization)
+  useEffect(() => {
+    const handleModelScaleChange = (event: CustomEvent<{ scale: number }>) => {
+      const { scale } = event.detail;
+      console.log('[ModelContext] Received model-scale-change event:', scale);
+      scaleDispatch({ type: 'SET_SCALE', payload: scale });
+      setModelState(prev => ({ ...prev, modelScale: scale }));
+    };
+
+    const handleModelPositionChange = (event: CustomEvent<{ position: ModelPosition }>) => {
+      const { position } = event.detail;
+      console.log('[ModelContext] Received model-position-change event:', position);
+      positionDispatch({ type: 'SET_POSITION', payload: position });
+      setModelState(prev => ({ ...prev, modelPosition: position }));
+    };
+
+    const handleModelSubtitleToggle = (event: CustomEvent<{ showSubtitles: boolean }>) => {
+      const { showSubtitles } = event.detail;
+      console.log('[ModelContext] Received model-subtitle-toggle event:', showSubtitles);
+      setModelState(prev => ({ ...prev, showSubtitles }));
+    };
+
+    const handleModelPointerInteractiveToggle = (event: CustomEvent<{ isPointerInteractive: boolean }>) => {
+      const { isPointerInteractive } = event.detail;
+      console.log('[ModelContext] Received model-pointer-interactive-toggle event:', isPointerInteractive);
+      setModelState(prev => ({
+        ...prev,
+        isPointerInteractive,
+        isScrollToResizeEnabled: isPointerInteractive ? false : prev.isScrollToResizeEnabled
+      }));
+    };
+
+    const handleModelScrollToResizeToggle = (event: CustomEvent<{ isScrollToResizeEnabled: boolean }>) => {
+      const { isScrollToResizeEnabled } = event.detail;
+      console.log('[ModelContext] Received model-scroll-to-resize-toggle event:', isScrollToResizeEnabled);
+      setModelState(prev => ({
+        ...prev,
+        isScrollToResizeEnabled,
+        isPointerInteractive: isScrollToResizeEnabled ? false : prev.isPointerInteractive
+      }));
+    };
+
+    const handleBackgroundPathChange = (event: CustomEvent<{ backgroundPath: string }>) => {
+      const { backgroundPath } = event.detail;
+      console.log('[ModelContext] Received background-path-change event:', backgroundPath);
+      setModelState(prev => ({
+        ...prev,
+        backgroundPath: backgroundPath || DEFAULT_BACKGROUND_PATH
+      }));
+    };
+
+    const handleModelPathChange = (event: CustomEvent<{ modelPath: string; characterId: string }>) => {
+      const { modelPath, characterId } = event.detail;
+      console.log('[ModelContext] Received model-path-change event from config page:', { modelPath, characterId });
+      
+      // Check if this is a different character to avoid unnecessary updates
+      setModelState(prev => {
+        if (prev.characterId === characterId && prev.modelPath === modelPath) {
+          console.log('[ModelContext] Character already matches, skipping update');
+          return prev;
+        }
+        
+        console.log('[ModelContext] Updating character state:', {
+          oldCharacterId: prev.characterId,
+          newCharacterId: characterId,
+          oldModelPath: prev.modelPath,
+          newModelPath: modelPath
+        });
+        
+        return {
+          ...prev,
+          modelPath,
+          characterId
+        };
+      });
+      
+      // Persist to localStorage
+      try {
+        localStorage.setItem('characterId', characterId);
+        localStorage.setItem('modelPath', modelPath);
+      } catch (e) {
+        console.warn('[ModelContext] Failed to save character to localStorage:', e);
+      }
+      
+      // If connected, send switch-config message
+      if (isConnected) {
+        sendMessage({
+          type: 'switch-config',
+          config_id: characterId
+        } as WebSocketMessage);
+      }
+    };
+
+    window.addEventListener('model-scale-change', handleModelScaleChange as EventListener);
+    window.addEventListener('model-position-change', handleModelPositionChange as EventListener);
+    window.addEventListener('model-subtitle-toggle', handleModelSubtitleToggle as EventListener);
+    window.addEventListener('model-pointer-interactive-toggle', handleModelPointerInteractiveToggle as EventListener);
+    window.addEventListener('model-scroll-to-resize-toggle', handleModelScrollToResizeToggle as EventListener);
+    window.addEventListener('background-path-change', handleBackgroundPathChange as EventListener);
+    window.addEventListener('model-path-change', handleModelPathChange as EventListener);
+
+    return () => {
+      window.removeEventListener('model-scale-change', handleModelScaleChange as EventListener);
+      window.removeEventListener('model-position-change', handleModelPositionChange as EventListener);
+      window.removeEventListener('model-subtitle-toggle', handleModelSubtitleToggle as EventListener);
+      window.removeEventListener('model-pointer-interactive-toggle', handleModelPointerInteractiveToggle as EventListener);
+      window.removeEventListener('model-scroll-to-resize-toggle', handleModelScrollToResizeToggle as EventListener);
+      window.removeEventListener('background-path-change', handleBackgroundPathChange as EventListener);
+      window.removeEventListener('model-path-change', handleModelPathChange as EventListener);
+    };
+  }, [isConnected, sendMessage]);
+
   const handleConfigUpdate = useCallback((newConfig: AppConfig) => {
     setModelState(prev => ({
       ...prev,
@@ -322,6 +518,14 @@ export const ModelProvider: React.FC<ModelProviderProps> = ({ children, isConnec
       };
     });
     
+    // Persist to localStorage
+    try {
+      localStorage.setItem('characterId', characterId);
+      localStorage.setItem('modelPath', modelPath);
+    } catch (e) {
+      console.warn('[ModelContext] Failed to save character to localStorage:', e);
+    }
+    
     if (isConnected) {
       console.log('[ModelContext] State Sync - Sending switch-config message:', {
         config_id: characterId,
@@ -343,6 +547,13 @@ export const ModelProvider: React.FC<ModelProviderProps> = ({ children, isConnec
     });
     window.dispatchEvent(event);
     
+    // Persist to localStorage
+    try {
+      localStorage.setItem('backgroundPath', backgroundPath || DEFAULT_BACKGROUND_PATH);
+    } catch (e) {
+      console.warn('[ModelContext] Failed to save background to localStorage:', e);
+    }
+    
     setModelState(prev => ({
       ...prev,
       backgroundPath: backgroundPath || DEFAULT_BACKGROUND_PATH
@@ -354,6 +565,19 @@ export const ModelProvider: React.FC<ModelProviderProps> = ({ children, isConnec
       newPosition: position,
       currentPosition: positionState
     });
+    
+    // Dispatch custom event to notify position change
+    const event = new CustomEvent('model-position-change', {
+      detail: { position }
+    });
+    window.dispatchEvent(event);
+    
+    // Persist to localStorage
+    try {
+      localStorage.setItem('modelPosition', JSON.stringify(position));
+    } catch (e) {
+      console.warn('[ModelContext] Failed to save position to localStorage:', e);
+    }
     
     // Update position state via reducer (ground truth)
     positionDispatch({ type: 'SET_POSITION', payload: position });
@@ -375,6 +599,19 @@ export const ModelProvider: React.FC<ModelProviderProps> = ({ children, isConnec
       }
     });
     
+    // Dispatch custom event to notify scale change
+    const event = new CustomEvent('model-scale-change', {
+      detail: { scale }
+    });
+    window.dispatchEvent(event);
+    
+    // Persist to localStorage
+    try {
+      localStorage.setItem('modelScale', scale.toString());
+    } catch (e) {
+      console.warn('[ModelContext] Failed to save scale to localStorage:', e);
+    }
+    
     // Update scale state via reducer
     scaleDispatch({ type: 'SET_SCALE', payload: scale });
     
@@ -392,6 +629,19 @@ export const ModelProvider: React.FC<ModelProviderProps> = ({ children, isConnec
   }, [scaleState.currentScale, modelState.modelScale, modelState.isScrollToResizeEnabled]);
 
   const handleSubtitleToggle = useCallback((show: boolean) => {
+    // Dispatch custom event to notify subtitle toggle
+    const event = new CustomEvent('model-subtitle-toggle', {
+      detail: { showSubtitles: show }
+    });
+    window.dispatchEvent(event);
+    
+    // Persist to localStorage
+    try {
+      localStorage.setItem('showSubtitles', show.toString());
+    } catch (e) {
+      console.warn('[ModelContext] Failed to save subtitle toggle to localStorage:', e);
+    }
+    
     setModelState(prev => ({
       ...prev,
       showSubtitles: show
@@ -399,6 +649,19 @@ export const ModelProvider: React.FC<ModelProviderProps> = ({ children, isConnec
   }, []);
 
   const handlePointerInteractiveToggle = useCallback((enabled: boolean) => {
+    // Dispatch custom event to notify pointer interactive toggle
+    const event = new CustomEvent('model-pointer-interactive-toggle', {
+      detail: { isPointerInteractive: enabled }
+    });
+    window.dispatchEvent(event);
+    
+    // Persist to localStorage
+    try {
+      localStorage.setItem('isPointerInteractive', enabled.toString());
+    } catch (e) {
+      console.warn('[ModelContext] Failed to save pointer interactive to localStorage:', e);
+    }
+    
     setModelState(prev => ({
       ...prev,
       isPointerInteractive: enabled,
@@ -407,6 +670,19 @@ export const ModelProvider: React.FC<ModelProviderProps> = ({ children, isConnec
   }, []);
 
   const handleScrollToResizeToggle = useCallback((enabled: boolean) => {
+    // Dispatch custom event to notify scroll to resize toggle
+    const event = new CustomEvent('model-scroll-to-resize-toggle', {
+      detail: { isScrollToResizeEnabled: enabled }
+    });
+    window.dispatchEvent(event);
+    
+    // Persist to localStorage
+    try {
+      localStorage.setItem('isScrollToResizeEnabled', enabled.toString());
+    } catch (e) {
+      console.warn('[ModelContext] Failed to save scroll to resize to localStorage:', e);
+    }
+    
     setModelState(prev => ({
       ...prev,
       isScrollToResizeEnabled: enabled,
@@ -437,12 +713,19 @@ export const ModelProvider: React.FC<ModelProviderProps> = ({ children, isConnec
 
   const handleMicrophoneToggle = useCallback(async () => {
     if (characterHandlerRef.current) {
-      await characterHandlerRef.current.handleMicrophoneToggle(
-        isRecording,
-        audioPermissionGranted,
-        audioStream
-      );
-      setIsRecording(!isRecording);
+      try {
+        // CharacterHandler will update isRecording state via props.setIsRecording
+        // Don't update it here to avoid race conditions
+        await characterHandlerRef.current.handleMicrophoneToggle(
+          isRecording,
+          audioPermissionGranted,
+          audioStream
+        );
+      } catch (error) {
+        console.error('[ModelContext] Error toggling microphone:', error);
+        // Ensure recording state is false on error
+        setIsRecording(false);
+      }
     }
   }, [isRecording, audioPermissionGranted, audioStream]);
 
